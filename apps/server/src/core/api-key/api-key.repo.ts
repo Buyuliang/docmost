@@ -91,11 +91,9 @@ export class ApiKeyRepo {
       perPage: opts.pagination.limit,
       cursor: opts.pagination.cursor,
       beforeCursor: opts.pagination.beforeCursor,
-      fields: [
-        { expression: 'createdAt', direction: 'desc' },
-        { expression: 'id', direction: 'desc' },
-      ],
-      parseCursor: (c) => ({ createdAt: c.createdAt, id: c.id }),
+      // id 为 uuid v7, 本身按时间有序, 单字段即可实现"按创建时间倒序"分页
+      fields: [{ expression: 'id', direction: 'desc' }],
+      parseCursor: (c) => ({ id: c.id }),
     });
   }
 
