@@ -31,7 +31,7 @@ export class ApiKeyService {
     name?: string;
     user: User;
     workspaceId: string;
-    expiresIn?: StringValue | number;
+    expiresIn?: string;
   }): Promise<{ apiKey: ApiKey; token: string }> {
     const row = await this.apiKeyRepo.insert({
       name: opts.name ?? null,
@@ -44,7 +44,7 @@ export class ApiKeyService {
       user: opts.user,
       workspaceId: opts.workspaceId,
       // 不传则默认长期有效(10 年), 避免继承访问令牌的短有效期
-      expiresIn: opts.expiresIn ?? '3650d',
+      expiresIn: (opts.expiresIn ?? '3650d') as StringValue,
     });
 
     // token 只在创建时返回一次, 之后无法再取
