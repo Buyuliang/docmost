@@ -1,15 +1,25 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateApiKeyDto {
-  @IsOptional()
   @IsString()
+  @MinLength(1)
   @MaxLength(100)
-  name?: string;
+  name: string;
 
-  /** 可选有效期, 如 "30d" / "90d" / "1y"; 不填则不过期 */
+  /** 可选到期日期(ISO 字符串); 不填则长期有效 */
   @IsOptional()
   @IsString()
-  expiresIn?: string;
+  expiresAt?: string;
+}
+
+export class UpdateApiKeyDto {
+  @IsString()
+  apiKeyId: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  name: string;
 }
 
 export class ApiKeyIdDto {

@@ -10,13 +10,12 @@ import { UserRepo } from '@docmost/db/repos/user/user.repo';
 import { WorkspaceRepo } from '@docmost/db/repos/workspace/workspace.repo';
 import { JwtApiKeyPayload } from '../auth/dto/jwt-payload';
 import { isUserDisabled } from '../../common/helpers';
-import { ApiKey, User } from '@docmost/db/types/entity.types';
+import { User } from '@docmost/db/types/entity.types';
+import { PaginationOptions } from '@docmost/db/pagination/pagination-options';
 
 /**
- * 社区版原创实现的 API Key 服务.
- * - create: 建行 + 用社区版已有的 TokenService.generateApiToken 签发 JWT(type=api_key), 明文只返回一次.
- * - validateApiKey: 供 jwt.strategy 在 type===api_key 时调用, 校验行有效并载入 user/workspace.
- * 令牌本身是自签 JWT(用 APP_SECRET 验签), 表里不存明文/hash, apiKeyId 指向行 id.
+ * 社区版原创实现的 API Key 服务 (非派生自企业版 ee/ 代码).
+ * 令牌是自签 JWT(APP_SECRET 验签, type=api_key, 内含 apiKeyId 指向行), 表里不存明文.
  */
 @Injectable()
 export class ApiKeyService {
@@ -28,37 +27,62 @@ export class ApiKeyService {
   ) {}
 
   async create(opts: {
-    name?: string;
+    name: string;
+    expiresAt?: string;
     user: User;
     workspaceId: string;
-    expiresIn?: string;
-  }): Promise<{ apiKey: ApiKey; token: string }> {
+  }) {
+    const expiresAtDate = opts.expiresAt ? new Date(opts.expiresAt) : null;
+
     const row = await this.apiKeyRepo.insert({
-      name: opts.name ?? null,
+      name: opts.name,
       creatorId: opts.user.id,
       workspaceId: opts.workspaceId,
+      expiresAt: expiresAtDate,
     } as any);
+
+    // JWT 有效期: 有 expiresAt 则算到那天的秒数, 否则默认 10 年
+    let expiresIn: StringValue | number = '3650d';
+    if (expiresAtDate) {
+      const secs = Math.floor((expiresAtDate.getTime() - Date.now()) / 1000);
+      expiresIn = secs > 0 ? secs : 60;
+    }
 
     const token = await this.tokenService.generateApiToken({
       apiKeyId: row.id,
       user: opts.user,
       workspaceId: opts.workspaceId,
-      // 不传则默认长期有效(10 年), 避免继承访问令牌的短有效期
-      expiresIn: (opts.expiresIn ?? '3650d') as StringValue,
+      expiresIn,
     });
 
-    // token 只在创建时返回一次, 之后无法再取
-    return { apiKey: row, token };
+    const withCreator = await this.apiKeyRepo.findByIdWithCreator(
+      row.id,
+      opts.workspaceId,
+    );
+
+    // token 只在创建时返回这一次
+    return { ...withCreator, token };
   }
 
-  async list(user: User, workspaceId: string): Promise<ApiKey[]> {
-    return this.apiKeyRepo.findByCreator(user.id, workspaceId);
+  async list(opts: {
+    workspaceId: string;
+    creatorId?: string;
+    pagination: PaginationOptions;
+  }) {
+    return this.apiKeyRepo.list(opts);
   }
 
-  async revoke(id: string, workspaceId: string): Promise<void> {
-    const existing = await this.apiKeyRepo.findById(id, workspaceId);
+  async updateName(apiKeyId: string, workspaceId: string, name: string) {
+    const existing = await this.apiKeyRepo.findById(apiKeyId, workspaceId);
     if (!existing) throw new NotFoundException('API key not found');
-    await this.apiKeyRepo.softDelete(id, workspaceId);
+    await this.apiKeyRepo.updateName(apiKeyId, workspaceId, name);
+    return this.apiKeyRepo.findByIdWithCreator(apiKeyId, workspaceId);
+  }
+
+  async revoke(apiKeyId: string, workspaceId: string): Promise<void> {
+    const existing = await this.apiKeyRepo.findById(apiKeyId, workspaceId);
+    if (!existing) throw new NotFoundException('API key not found');
+    await this.apiKeyRepo.softDelete(apiKeyId, workspaceId);
   }
 
   /** jwt.strategy 校验 type=api_key 令牌时调用 */
@@ -81,7 +105,6 @@ export class ApiKeyService {
     const user = await this.userRepo.findById(payload.sub, payload.workspaceId);
     if (!user || isUserDisabled(user)) throw new UnauthorizedException();
 
-    // 更新 last_used_at, 失败不影响鉴权
     this.apiKeyRepo.touchLastUsed(record.id).catch(() => void 0);
 
     return { user, workspace };
