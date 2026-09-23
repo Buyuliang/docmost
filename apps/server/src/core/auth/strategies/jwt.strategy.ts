@@ -100,12 +100,13 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     let isApiKeyModuleReady = false;
 
     try {
+      // 社区版原创实现: 指向 core/api-key 而非被抽走的 ee 模块
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      ApiKeyModule = require('./../../../ee/api-key/api-key.service');
+      ApiKeyModule = require('../../api-key/api-key.service');
       isApiKeyModuleReady = true;
     } catch (err) {
       this.logger.debug(
-        'API Key module requested but enterprise module not bundled in this build',
+        'API Key module not available in this build',
       );
       isApiKeyModuleReady = false;
     }
@@ -118,7 +119,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       return ApiKeyService.validateApiKey(payload);
     }
 
-    throw new UnauthorizedException('Enterprise API Key module missing');
+    throw new UnauthorizedException('API Key module missing');
   }
 
   private async validateOAuthToken(req: any, payload: JwtOAuthPayload) {
